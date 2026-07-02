@@ -7,7 +7,6 @@ A security-first, production-ready Compliance Assistant RAG application. It scan
 ## 🔗 Working Prototype Deployment Links
 * **Frontend UI (Vercel):** [https://compliance-assistant-rag.vercel.app](https://compliance-assistant-rag.vercel.app)
 * **Backend API (Render):** [https://compliance-assistant-rag.onrender.com](https://compliance-assistant-rag.onrender.com)
-* **Database (Supabase):** [https://supabase.com](https://supabase.com)
 
 ---
 
