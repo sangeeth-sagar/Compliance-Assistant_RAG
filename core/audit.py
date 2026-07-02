@@ -27,13 +27,3 @@ def log_action(
     db.add(entry)
     db.commit()
 
-
-def read_log(db: Session, user_id, limit: int = 100):
-    rows = (
-        db.query(AuditLog)
-        .filter(AuditLog.user_id == user_id)
-        .order_by(AuditLog.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    return rows

@@ -96,6 +96,16 @@ PATTERNS: Dict[str, Any] = {
 
 SPACY_LABELS = {"PERSON", "ORG"}
 
+_nlp = None
+
+
+def _get_spacy_nlp():
+    global _nlp
+    if _nlp is None:
+        import spacy
+        _nlp = spacy.load("en_core_web_sm")
+    return _nlp
+
 
 def detect_pii(text: str, use_spacy: bool = True) -> Dict[str, List[Dict[str, Any]]]:
     findings: Dict[str, List[Dict[str, Any]]] = {}
@@ -122,21 +132,21 @@ def detect_pii(text: str, use_spacy: bool = True) -> Dict[str, List[Dict[str, An
 
     if use_spacy:
         try:
-            import spacy
-            nlp = spacy.load("en_core_web_sm")
-            doc = nlp(text)
-            for ent in doc.ents:
-                if ent.label_ in SPACY_LABELS:
-                    label = f"spacy_{ent.label_}"
-                    if label not in findings:
-                        findings[label] = []
-                    findings[label].append({
-                        "value": ent.text,
-                        "start": ent.start_char,
-                        "end": ent.end_char,
-                        "type": label,
-                        "confidence": "low",
-                    })
+            nlp = _get_spacy_nlp()
+            if nlp is not None:
+                doc = nlp(text)
+                for ent in doc.ents:
+                    if ent.label_ in SPACY_LABELS:
+                        label = f"spacy_{ent.label_}"
+                        if label not in findings:
+                            findings[label] = []
+                        findings[label].append({
+                            "value": ent.text,
+                            "start": ent.start_char,
+                            "end": ent.end_char,
+                            "type": label,
+                            "confidence": "low",
+                        })
         except Exception:
             pass
 
