@@ -52,10 +52,12 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> list:
     return chunks
 
 
-def index_document(doc_id: str, redacted_text: str):
+def index_document(doc_id: str, user_id: str, redacted_text: str):
     collection = _get_collection()
     try:
-        existing = collection.get(where={"doc_id": doc_id})
+        existing = collection.get(
+            where={"$and": [{"doc_id": doc_id}, {"user_id": user_id}]}
+        )
         if existing and existing["ids"]:
             collection.delete(ids=existing["ids"])
     except Exception:
@@ -68,7 +70,10 @@ def index_document(doc_id: str, redacted_text: str):
     embeddings = _embed_texts(chunks)
 
     ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
-    metadatas = [{"doc_id": doc_id, "chunk_index": i} for i in range(len(chunks))]
+    metadatas = [
+        {"doc_id": doc_id, "user_id": user_id, "chunk_index": i}
+        for i in range(len(chunks))
+    ]
 
     collection.add(
         ids=ids,
@@ -79,14 +84,14 @@ def index_document(doc_id: str, redacted_text: str):
     return len(chunks)
 
 
-def query_document(doc_id: str, question: str, top_k: int = 5) -> list:
+def query_document(doc_id: str, user_id: str, question: str, top_k: int = 5) -> list:
     collection = _get_collection()
     q_embedding = _embed_texts([question])[0]
 
     results = collection.query(
         query_embeddings=[q_embedding],
         n_results=top_k,
-        where={"doc_id": doc_id},
+        where={"$and": [{"doc_id": doc_id}, {"user_id": user_id}]},
     )
 
     if results and results["documents"]:

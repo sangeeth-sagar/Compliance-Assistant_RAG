@@ -1,47 +1,39 @@
 import json
-import os
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Optional, Dict, Any
 
-AUDIT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-AUDIT_FILE = os.path.join(AUDIT_DIR, "audit.jsonl")
+from sqlalchemy.orm import Session
 
-
-def _ensure_dir():
-    os.makedirs(AUDIT_DIR, exist_ok=True)
+from core.models import AuditLog
 
 
 def log_action(
+    db: Session,
+    user_id,
     action: str,
-    doc_id: str,
-    filename: str,
+    document_id=None,
+    filename: str = "",
     risk_level: str = "",
-    details: Optional[Dict] = None,
+    details: Optional[Dict[str, Any]] = None,
 ):
-    _ensure_dir()
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "action": action,
-        "doc_id": doc_id,
-        "filename": filename,
-        "risk_level": risk_level,
-    }
-    if details:
-        entry["details"] = details
-    with open(AUDIT_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    entry = AuditLog(
+        user_id=user_id,
+        document_id=document_id,
+        action=action,
+        filename=filename,
+        risk_level=risk_level,
+        details=details,
+    )
+    db.add(entry)
+    db.commit()
 
 
-def read_log() -> List[Dict]:
-    if not os.path.exists(AUDIT_FILE):
-        return []
-    entries = []
-    with open(AUDIT_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-    return entries
+def read_log(db: Session, user_id, limit: int = 100):
+    rows = (
+        db.query(AuditLog)
+        .filter(AuditLog.user_id == user_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return rows

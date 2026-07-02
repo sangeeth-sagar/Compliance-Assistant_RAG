@@ -1,55 +1,112 @@
 # Compliance Sentinel
 
-A document upload tool that detects sensitive/PII data, classifies risk levels, generates AI-powered compliance summaries, and enables RAG-based question answering over uploaded documents.
+A security-first compliance assistant that detects sensitive/PII data, classifies risk levels, generates AI-powered compliance summaries, and enables secure RAG-based question answering over uploaded documents.
+
+---
 
 ## Setup Instructions
 
-### Local Development
+### 1. Docker Compose (Recommended for Production/Validation)
+This runs the entire stack (FastAPI Backend, Vue 3 Frontend, and PostgreSQL Database) in containers:
 
-```bash
-git clone https://github.com/your-username/compliance-sentinel.git
-cd compliance-sentinel
-pip install -r requirements.txt
-python -m spacy download en_core_web_sm
-cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY
-streamlit run app.py
-```
+1. Clone the repository and navigate to the project directory:
+   ```bash
+   git clone https://github.com/your-username/compliance-sentinel.git
+   cd compliance-sentinel/Rag_Task
+   ```
+2. Copy the `.env.example` file to `.env` and fill in your Google Gemini API Key:
+   ```bash
+   copy .env.example .env
+   # Edit .env and set GEMINI_API_KEY
+   ```
+3. Start the application:
+   ```bash
+   docker compose up --build
+   ```
+4. Access the application at **`http://localhost:8000`**.
 
-### Docker
+---
 
-```bash
-docker build -t compliance-sentinel .
-docker run -p 8501:8501 -e GEMINI_API_KEY=your_key_here compliance-sentinel
-```
+### 2. Local Development Setup
 
-### Environment Variables
+#### Backend Setup:
+1. Navigate to the backend directory:
+   ```bash
+   cd Rag_Task
+   ```
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   .\venv\Scripts\activate   # On Windows
+   # source venv/bin/activate # On macOS/Linux
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   python -m spacy download en_core_web_sm
+   ```
+4. Set up your environment variables in `.env`:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key_here
+   DATABASE_URL=postgresql://compliance:compliance@localhost:5432/compliance_assistant
+   ```
+5. Apply database migrations:
+   ```bash
+   alembic upgrade head
+   ```
+6. Start the backend server:
+   ```bash
+   uvicorn main:app --reload --port 8000
+   ```
 
-| Variable | Description |
-|---|---|
-| `GEMINI_API_KEY` | Google Gemini API key (free tier works) |
+#### Frontend Setup:
+1. Open a new terminal and navigate to the `frontend` folder:
+   ```bash
+   cd Rag_Task/frontend
+   ```
+2. Install Node dependencies:
+   ```bash
+   npm install
+   ```
+3. Start the frontend dev server:
+   ```bash
+   npm run dev
+   ```
+4. Open your browser to the URL output by Vite (usually **`http://localhost:5173`**).
+
+---
 
 ## Architecture Overview
 
 ```
-Upload ──▶ Extract ──▶ Detect PII ──▶ Score Risk ──▶ Redact
-                                                        │
-                              ┌──────────────────────────┤
-                              ▼                          ▼
-                     Embed & Store (Chroma)    Generate Summary (Gemini)
-                              │                          │
-                              ▼                          ▼
-                     RAG Query Answer          Compliance Report
+Upload ──▶ Extract Text ──▶ Detect PII ──▶ Risk Scoring ──▶ Redacted Text ──▶ Auto-Index (ChromaDB)
+                                                                 │
+                                                                 └─────▶ AI Summary (Gemini)
+                                                                 │
+                                                                 └─────▶ RAG Q&A (Gemini + Findings)
 ```
 
-**Core Security Principle**: Raw PII never leaves the local process boundary. All text is redacted with `[REDACTED_*]` tags before being embedded into Chroma or sent to Gemini. The LLM only ever sees redacted text and aggregate counts.
+### Components:
+* **Frontend**: Vue 3 SPA built with Vite and designed with custom dark-mode aesthetics, custom micro-animations, and interactive dashboards.
+* **Backend**: FastAPI web server serving REST endpoints, managing database queries, and serving the compiled frontend bundle in production mode.
+* **Database**: PostgreSQL (tracks Users, scanned Documents, Chat history, and Audit logs).
+* **Vector DB**: ChromaDB (stores vector embeddings of redacted chunks).
+* **LLM**: Google Gemini 1.5 Flash (used for summary generation and answering context-grounded queries).
 
-### Why Redaction Before LLM/Vector Calls?
+---
 
-1. **Data minimization**: Only the minimum necessary information is shared with third-party APIs
-2. **Compliance**: Aligns with GDPR/DPDPA data minimization principles
-3. **No PII in embeddings**: Vector stores don't contain raw sensitive data
-4. **Audit trail**: Redacted outputs are traceable and auditable
+## Core Security & Compliance Safeguards
+
+### 1. Zero PII Leakage in Vector DB
+To avoid exposing sensitive information to external APIs or vector indexes, ChromaDB **only indexes the redacted document text** (where sensitive values are masked with placeholders like `[REDACTED_Email]`).
+
+### 2. Contextual Query Enhancement
+When users ask questions about the document, the original PII findings (securely stored in your local PostgreSQL database) are dynamically injected into the LLM context. This allows the assistant to answer compliance questions (e.g. *"What sensitive data exists?"* or *"How many emails?"*) while keeping the permanent vector index completely redacted and compliant.
+
+### 3. Automatic Ingestion
+Documents are automatically chunked, embedded, and indexed into ChromaDB immediately upon uploading/scanning, ensuring no redundancy or manual indexing steps are required.
+
+---
 
 ## AI/ML Approach
 
@@ -57,65 +114,34 @@ Upload ──▶ Extract ──▶ Detect PII ──▶ Score Risk ──▶ Red
 
 | Layer | Technology | Why |
 |---|---|---|
-| **Structured PII** | Regex + Luhn/Verhoeff | Deterministic, auditable, zero false positives on formats like PAN/Aadhaar |
-| **Unstructured entities** | spaCy NER | Catches names/orgs in free text that regex can't match |
-| **Summarization** | Gemini 1.5 Flash | Generates actionable compliance insights from redacted content |
-| **RAG generation** | Gemini + Chroma | Grounded Q&A that only answers from document context |
+| **Structured PII** | Regex + Luhn/Verhoeff Check | Deterministic, zero false positives on standard ID patterns (Aadhaar, PAN, CC, Bank, IFSC) |
+| **Unstructured entities** | spaCy NER | Extracts names and organizations in free-flowing text that regex cannot catch |
+| **Summarization** | Gemini 1.5 Flash | Generates compliance/security reports from compliance scans |
+| **RAG generation** | Gemini + ChromaDB | Answers questions securely using context-grounded RAG |
 
-### Why Hybrid Beats Pure-LLM PII Detection
+### Risk Scoring Model:
+* **High Risk (5 pts)**: Aadhaar, PAN, Credit Card, Bank Account, API Keys (Immediate threat of identity/financial theft).
+* **Medium Risk (2 pts)**: Phone Number, Employee ID.
+* **Low Risk (1 pt)**: Email Address, Named Entities (PERSON/ORG).
 
-- **Determinism**: Regex on structured formats (PAN: `ABCDE1234F`) produces consistent, reproducible results — no hallucinated matches or missed detections
-- **Audibility**: Every regex match includes exact character positions, enabling precise redaction and audit trails
-- **Performance**: Regex runs in milliseconds; no API calls needed for detection
-- **Cost**: Only Gemini calls for summary/RAG, not for every detection
-- **LLM for what it's good at**: Natural language understanding, summarization, and grounded generation — not pattern matching on fixed formats
+**Risk Level Evaluation**: 
+* **Low**: Score 0–5
+* **Medium**: Score 6–20
+* **High**: Score 21+
 
-### Risk Scoring
+---
 
-Weighted scoring system:
+## Challenges Faced & Solutions
 
-| Category | Weight | Examples |
-|---|---|---|
-| High (5 pts) | Aadhaar, PAN, Credit Card, Bank Account, API Keys | Direct financial/identity risk |
-| Medium (2 pts) | Phone, Employee ID | Contact/employment linkage |
-| Low (1 pt) | Email, spaCy PERSON/ORG | Lower-risk identifiers |
+1. **Database Consistency on Faulty Schema Creations**: Identified duplicate index definitions (`ix_refresh_tokens_token_hash`) causing SQLAlchemy's `create_all()` to crash on clean databases. Resolved by removing index definitions in table arguments that were already handled by `index=True` configuration on the column attributes.
+2. **False Positives on ID Numbers**: Generic 12 or 16-digit patterns trigger matches easily. Resolved by implementing Verhoeff check validation for Aadhaar numbers and Luhn algorithm checks for Credit Cards to verify checking digits.
+3. **Chunk Boundary Truncation**: Text chunking can split a sensitive item across boundaries. Mitigated by scanning the complete, continuous text for PII *before* breaking it down into chunks for ChromaDB.
 
-Thresholds: 0-5 = Low, 6-20 = Medium, 21+ = High
-
-## Challenges Faced
-
-1. **False positives on generic 16-digit numbers**: Solved by adding Luhn checksum validation for credit cards and Verhoeff check for Aadhaar — reduces false positives on random digit sequences
-2. **Scanned PDF OCR quality**: Added `pdf2image` + `pytesseract` fallback when `pypdf` extracts near-empty text; quality depends on scan resolution
-3. **Chunk-boundary PII leakage**: PII split across chunk boundaries could miss detection. Mitigated by running detection on full document text before chunking, and using overlapping chunks for RAG retrieval
-4. **spaCy model availability**: `en_core_web_sm` may not be installed in all environments — gracefully degrades if unavailable
+---
 
 ## Future Improvements
 
-- **Microsoft Presidio integration**: Production-grade PII detection with configurable recognizers
-- **Per-tenant authentication**: Multi-user support with document isolation
-- **PostgreSQL persistence**: Replace JSONL audit log with queryable database
-- **Streaming responses**: Real-time token streaming for Gemini summaries
-- **Multi-language PII patterns**: Support for non-English document formats
-- **Batch processing**: Upload and scan multiple documents simultaneously
-- **Custom regex patterns**: User-defined detection rules via UI
-
-## Project Structure
-
-```
-compliance-sentinel/
-├── app.py                  # Streamlit entrypoint — tabs: Upload, Summary, Chat, Audit Log
-├── core/
-│   ├── extractor.py        # PDF/TXT/CSV → raw text, OCR fallback for scanned PDFs
-│   ├── pii_detector.py     # Regex + spaCy patterns, returns findings dict
-│   ├── risk_engine.py      # Weighted scoring → Low/Medium/High
-│   ├── redactor.py         # Raw text → redacted text with [REDACTED_*] tags
-│   ├── summarizer.py       # Gemini call → compliance summary + remediation
-│   ├── rag_engine.py       # Chunk, embed, store in Chroma, query
-│   └── audit.py            # Append-only JSONL audit trail
-├── data/                   # Chroma persistence + audit.jsonl
-├── requirements.txt
-├── Dockerfile
-├── .env.example
-├── .gitignore
-└── README.md
-```
+* **Microsoft Presidio Integration**: Extend raw PII detection using a production-ready framework.
+* **Multi-tenant Document Isolation**: Encrypt and isolate data between separate user organization profiles.
+* **Streaming Responses**: Stream response tokens in real-time to the chat screen for a smoother user experience.
+* **Custom PII Rules**: Allow users to add custom regex patterns or blacklist terms via the dashboard settings.
